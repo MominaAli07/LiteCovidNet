@@ -29,7 +29,7 @@ python custom.py
 ```bash
 @misc{your_litecovidnet_2025,
   author = {Momina L. Ali},
-  title = {LiteCovidNet: Lightweight CNN for COVID-19 Diagnosis and Uncertainty Estimation},
+  title = {LiteCovidNet: A Lightweight CNN Framework for Chest X-ray Diagnosis with Integrated Uncertainty Estimation},
   year = {2025},
   url = {https://github.com/yourusername/litecovidnet}
 }
