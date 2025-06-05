@@ -16,5 +16,5 @@ This repository contains the code for **LiteCovidNet**, a lightweight convolutio
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/litecovidnet.git
-cd litecovidnet
+git clone https://github.com/yourusername/liteCovidNet.git
+cd liteCovidNet ```
