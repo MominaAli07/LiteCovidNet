@@ -17,8 +17,9 @@ This repository contains the code for **LiteCovidNet**, a lightweight convolutio
 
 ```bash
 git clone https://github.com/yourusername/liteCovidNet.git
-cd liteCovidNet 
-
+cd liteCovidNet
+```
+---
 ### 2. Check the model code
 ```bash
 python custom.py ```
