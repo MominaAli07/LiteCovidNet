@@ -18,3 +18,6 @@ This repository contains the code for **LiteCovidNet**, a lightweight convolutio
 ```bash
 git clone https://github.com/yourusername/liteCovidNet.git
 cd liteCovidNet ```
+
+```bash
+streamlit run app.py ```
