@@ -1,0 +1,20 @@
+# LiteCovidNet: Lightweight CNN for Lung X-Ray COVID-19 Diagnosis
+
+This repository contains the code for **LiteCovidNet**, a lightweight convolutional neural network framework for multi-class classification of lung diseases (including COVID-19) from chest X-ray images. The project also features robust uncertainty estimation and an interactive [Streamlit](https://streamlit.io/) web app for rapid diagnosis.
+
+## Features
+
+- **Custom lightweight CNN architecture** trained from scratch (no transfer learning)
+- Supports multi-class classification: COVID-19, Lung Opacity, Normal, Pneumonia, and TB
+- Uncertainty quantification using Stochastic Gradient Langevin Dynamics (SGLD)
+- Predictive entropy, variation ratio, and calibration error computation
+- Streamlit web interface for real-time image upload and prediction
+- Extensive model evaluation and visualization tools
+
+## Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/yourusername/litecovidnet.git
+cd litecovidnet
