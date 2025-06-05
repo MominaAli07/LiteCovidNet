@@ -1,0 +1,173 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COVID-19 Prediction</title>
+</head>
+<body>
+    <h1>COVID-19 Prediction</h1>
+    <form action="/predict" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept="image/*" required>
+        <button type="submit">Upload and Predict</button>
+    </form>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COVID-19 Classification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(120deg, #a8dadc 0%, #457b9d 100%);
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+
+        .header {
+            position: relative;
+            text-align: center;
+            color: white;
+        }
+
+        .header img.bg {
+            width: 100%;
+            height: 400px;
+            object-fit: cover;
+            filter: brightness(70%);
+        }
+
+        /* .header img.logo {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 80px;
+            height: auto;
+            border-radius: 10px;
+        } */
+
+        .header h1 {
+            position: absolute;
+            top: 40%;
+            left: 47%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            font-weight: bold;
+            text-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .container {
+            text-align: center;
+            background: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+            margin: 20px auto;
+        }
+
+        .intro {
+            margin: 20px auto;
+            padding: 20px;
+            background: #e0f7fa;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            color: #034078;
+            line-height: 1.6;
+        }
+
+        form {
+            margin-top: 20px;
+        }
+
+        input[type="file"] {
+            margin: 20px 0;
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            display: block;
+            width: 100%;
+            text-align: center;
+            font-size: 16px;
+            color: #555;
+        }
+
+        input[type="file"]::file-selector-button {
+            background: #457b9d;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        input[type="file"]::file-selector-button:hover {
+            background: #1d3557;
+        }
+
+        button {
+            background: #457b9d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #1d3557;
+        }
+
+        footer {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header Section with Background Image -->
+    <div class="header">
+        <!-- Logo on top-left -->
+        <!-- <img src="logo.jpeg" alt="Logo" class="logo"> -->
+        <img src="{{ url_for('static', filename='header.jpeg') }}" alt="Chest X-Ray Background" class="bg">
+        <h1>COVID-19 Classification <br> Using Chest X-ray Scans</h1>
+
+    </div>
+
+    <!-- Intro Section -->
+    <div class="intro">
+        <h2>Welcome to the COVID-19 Classification System</h2>
+        <p>
+            This system is developed to help the public to identify if the X-Ray scan falls into one of the following four categories:
+            <strong>Normal</strong>, <strong>Lung Opacity</strong>, <strong>COVID-19</strong>, and <strong>Viral Pneumonia</strong>.
+        </p>
+        <p>
+            This system works simply by uploading an X-Ray image and the system analysis the image and tells people if it contains COVID or not.
+            This tool is not meant to replace the doctors it can be considered as an initial screening phase to assist medical professionals.
+        </p>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <p class="description">Select a chest X-ray image to predict its classification.</p>
+        <form action="/predict" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file" accept="image/*" required>
+            <button type="submit">Upload and Predict</button>
+        </form>
+        <footer>
+            <p>&copy; 2024 COVID-19 Classification System. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
