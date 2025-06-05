@@ -25,7 +25,12 @@ cd liteCovidNet
 python custom.py
 ```
 ---
-### 3. To cite this work:
+### 3.  Launch the Streamlit app
+```bash
+streamlit run app.py
+```
+---
+### 4. To cite this work:
 ```bash
 @misc{your_litecovidnet_2025,
   author = {Momina L. Ali},
