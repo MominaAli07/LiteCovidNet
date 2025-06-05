@@ -22,4 +22,15 @@ cd liteCovidNet
 ---
 ### 2. Check the model code
 ```bash
-python custom.py ```
+python custom.py
+```
+---
+### 3. To cite this work:
+```bash
+@misc{your_litecovidnet_2025,
+  author = {Momina L. Ali},
+  title = {LiteCovidNet: Lightweight CNN for COVID-19 Diagnosis and Uncertainty Estimation},
+  year = {2025},
+  url = {https://github.com/yourusername/litecovidnet}
+}
+```
