@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[2]:
-
 # Imports
 import os
 import cv2
@@ -14,13 +9,16 @@ from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torchvision import transforms
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report
 from torchmetrics.classification import Accuracy, F1Score, Precision, Recall
 import matplotlib.pyplot as plt
+from torch.utils.data import WeightedRandomSampler
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
-# Function to load images
+
+# Function to load imagesi
 def retrieve_images(filepath: str):
     return [
         cv2.imread(os.path.join(filepath, img))
@@ -30,12 +28,10 @@ def retrieve_images(filepath: str):
 
 # Dataset paths
 ABS_FILE_PATHS = [
-        '/home/ma2mp/STAT7400/Balanced5Class/Normal/images/',
-        '/home/ma2mp/STAT7400/Balanced5Class/Lung_Opacity/images/',
-        '/home/ma2mp/STAT7400/Balanced5Class/COVID/images/',
-        '/home/ma2mp/STAT7400/Balanced5Class/Pneumonia/images/',
-        '/home/ma2mp/STAT7400/Balanced5Class/TB/images'
+        #Dataset path goes here
         ]
+
+
 
 labels = ['normal', 'afflicted', 'covid', 'pneumonia', 'tb']
 
@@ -71,13 +67,28 @@ X_train, X_val, Y_train, Y_val = train_test_split(
 
 
 
-    # Transformations for preprocessing images
-transform = transforms.Compose([
+# Training Transform with augmentation
+train_transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(degrees=10),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
+])
+
+# Validation/Test Transform (no augmentation)
+eval_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
 ])
+
+
 
 # Custom Dataset Class
 class ImageDataset(Dataset):
@@ -119,10 +130,12 @@ class ImageDataset(Dataset):
 
 # Lightning Data Module
 class LungImgDataModule(pl.LightningDataModule):
-    def __init__(self, image_paths_train, image_paths_val, image_paths_test, labels_train, labels_val, labels_test, transform=None, batch_size=64, num_workers=4):
+    def __init__(self, image_paths_train, image_paths_val, image_paths_test,
+                 labels_train, labels_val, labels_test,
+                 train_transform=None, eval_transform=None, batch_size=64, num_workers=4):
         """
         Lightning Data Module for loading image data.
-        
+
         Args:
             image_paths_train: List of training image file paths.
             image_paths_val: List of validation image file paths.
@@ -135,26 +148,43 @@ class LungImgDataModule(pl.LightningDataModule):
             num_workers: Number of workers for DataLoader.
         """
         super().__init__()
+
+    
         self.image_paths_train = image_paths_train
         self.image_paths_val = image_paths_val
         self.image_paths_test = image_paths_test
         self.labels_train = labels_train
         self.labels_val = labels_val
         self.labels_test = labels_test
-        self.transform = transform
+        self.train_transform = train_transform
+        self.eval_transform = eval_transform
         self.batch_size = batch_size
         self.num_workers = num_workers
 
     def train_dataloader(self):
-        train_dataset = ImageDataset(self.image_paths_train, self.labels_train, transform=self.transform)
-        return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=True)
+        train_dataset = ImageDataset(self.image_paths_train, self.labels_train, transform=self.train_transform)
+        # Compute class weights
+        class_sample_counts = np.bincount(self.labels_train)
+        class_weights = 1. / class_sample_counts
+        sample_weights = [class_weights[label] for label in self.labels_train]
 
+        sampler = WeightedRandomSampler(weights=sample_weights,
+                                        num_samples=len(sample_weights),
+                                        replacement=True)
+
+        return DataLoader(train_dataset,
+                          batch_size=self.batch_size,
+                          sampler=sampler,
+                          num_workers=self.num_workers,
+                          pin_memory=True)
+    
     def val_dataloader(self):
-        val_dataset = ImageDataset(self.image_paths_val, self.labels_val, transform=self.transform)
+        val_dataset = ImageDataset(self.image_paths_val, self.labels_val, transform=self.eval_transform)
         return DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, pin_memory=True)
 
     def test_dataloader(self):
-        test_dataset = ImageDataset(self.image_paths_test, self.labels_test, transform=self.transform)
+        test_dataset = ImageDataset(self.image_paths_test, self.labels_test, transform=self.eval_transform)
+      
         return DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, pin_memory=True)
 
 # Instantiate the data module
@@ -165,7 +195,8 @@ data_module = LungImgDataModule(
     labels_train=Y_train,
     labels_val=Y_val,
     labels_test=Y_test,
-    transform=transform,
+    train_transform=train_transform,
+    eval_transform=eval_transform,
     batch_size=16
 )
 
@@ -198,6 +229,7 @@ class BlockB(nn.Module):
         x = self.relu(self.bn1(self.conv1(x)))
         x = self.relu(self.bn2(self.conv2(x)))
         return self.avgpool(x)
+
 
 class BlockC(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -255,44 +287,13 @@ class DeepCNNModel(nn.Module):
         return self.fc2(x)
 
 
-# In[ ]:
-
-
-# SGLD Optimizer Definition
-class SGLDOptimizer(torch.optim.Optimizer):
-    def __init__(self, params, lr=1e-4, weight_decay=0.0):
-        defaults = dict(lr=lr, weight_decay=weight_decay)
-        super().__init__(params, defaults)
-
-    @torch.no_grad()
-    def step(self, closure=None):
-        if closure is not None:
-            closure()
-        for group in self.param_groups:
-            lr = group['lr']
-            wd = group['weight_decay']
-            for p in group['params']:
-                if p.grad is None:
-                    continue
-                d_p = p.grad
-                if wd != 0:
-                    d_p = d_p + wd * p
-                p.add_(d_p, alpha=-lr)
-                noise = torch.randn_like(p) * (2 * lr) ** 0.5
-                p.add_(noise)
-
-
-
-
 
 class CustomModelLightning(pl.LightningModule):
-    def __init__(self, learning_rate=1e-3, num_classes=5, switch_epoch=30, sgld_lr=1e-4):
+    def __init__(self, learning_rate=1e-3, num_classes=5):
         super().__init__()
         self.model = DeepCNNModel(num_classes=num_classes)
         self.criterion = nn.CrossEntropyLoss()
         self.learning_rate = learning_rate
-        self.sgld_lr = sgld_lr
-        self.switch_epoch = switch_epoch
 
         # Metrics
         self.train_accuracy = Accuracy(task='multiclass', num_classes=num_classes)
@@ -398,33 +399,19 @@ class CustomModelLightning(pl.LightningModule):
         self.val_step_accs.clear()
 
     def configure_optimizers(self):
-        if self.current_epoch < self.switch_epoch:
-            return optim.Adam(self.parameters(), lr=self.learning_rate)
-        else:
-            return SGLDOptimizer(self.parameters(), lr=self.sgld_lr)
+        return optim.Adam(self.parameters(), lr=self.learning_rate)
 
 
 # In[ ]:
-
-
 custom_model = CustomModelLightning(learning_rate=1e-3, num_classes=5)
 
 
 # In[ ]:
-
-
 trainer = pl.Trainer(max_epochs=100)
-
-
-# In[ ]:
-
-
 trainer.fit(custom_model, data_module)
 
 
 # In[ ]:
-
-
 # Remove the first entries if they are placeholders
 if len(custom_model.val_losses) > len(custom_model.train_losses):
     del custom_model.val_losses[0]
@@ -432,8 +419,6 @@ if len(custom_model.val_losses) > len(custom_model.train_losses):
 
 
 # In[ ]:
-
-
 def plot_metrics(model):
     epochs = range(len(model.train_losses))
     plt.figure(figsize=(12, 4))
@@ -459,6 +444,11 @@ plot_metrics(custom_model)
 plt.savefig("CustomModelResults/custom_model_learning_curve.png")
 
 
+# In[ ]:
+trainer.test(custom_model, data_module)
+
+
+# In[ ]:
 def get_predictions_and_labels(model, datamodule):
     model.eval()
     predictions = []
@@ -472,208 +462,60 @@ def get_predictions_and_labels(model, datamodule):
             true_labels.extend(Y.cpu().numpy())
     return np.array(predictions), np.array(true_labels)
 
+def generate_classification_report(model, datamodule, label_encoder):
+    predictions, true_labels = get_predictions_and_labels(model, datamodule)
+    target_names = label_encoder.inverse_transform(range(len(label_encoder.classes_)))
+    report = classification_report(true_labels, predictions, target_names=target_names)
+    return report
 
-from tqdm import tqdm
+# Generate and print the classification report
+custom_report = generate_classification_report(custom_model, data_module, le)
+print("Classification Report for Custom Model:\n", custom_report)
 
-def mc_predict(model, dataloader, n_passes: int = 20):
+
+from sklearn.metrics import confusion_matrix
+
+def compute_specificity(y_true, y_pred, label_encoder):
     """
-    Run n_passes stochastic forward passes and return a stacked tensor of
-    shape (n_passes, N, num_classes), where N = len(dataloader.dataset).
+    Compute specificity (true negative rate) for each class in a multiclass setting.
+    For each class, specificity = TN / (TN + FP), where:
+      - TN is the sum of true negatives for that class.
+      - FP is the sum of false positives for that class.
     """
-    model.eval()
-    preds_list = []
-    for _ in tqdm(range(n_passes), desc="MC passes"):
-        all_probs = []
-        for x, _ in dataloader:
-            x = x.to(model.device)
-            with torch.no_grad():
-                logits = model(x)
-                probs = F.softmax(logits, dim=1)
-            all_probs.append(probs.cpu())
-        preds_list.append(torch.cat(all_probs))
-    return torch.stack(preds_list)  # (n_passes, N, C)
+    cm = confusion_matrix(y_true, y_pred)
+    specificity_dict = {}
+    for i, label in enumerate(label_encoder.classes_):
+        TN = cm.sum() - (cm[i, :].sum() + cm[:, i].sum() - cm[i, i])
+        FP = cm[:, i].sum() - cm[i, i]
+        specificity = TN / (TN + FP) if (TN + FP) > 0 else 0
+        specificity_dict[label] = specificity
+    return specificity_dict
 
 
-def plot_reliability_diagram(probs_tensor, labels_tensor, n_bins=15, save_path='reliability.png'):
-    """
-    probs_tensor : torch.tensor or np.ndarray, shape (N, C)
-    labels_tensor: torch.tensor or np.ndarray, shape (N,)
-    Saves a reliability diagram as PNG.
-    """
-    if isinstance(probs_tensor, np.ndarray):
-        probs_tensor = torch.from_numpy(probs_tensor)
-    if isinstance(labels_tensor, np.ndarray):
-        labels_tensor = torch.from_numpy(labels_tensor)
 
-    confidences, predictions = probs_tensor.max(dim=1)
-    accuracies = predictions.eq(labels_tensor)
 
-    bins = torch.linspace(0, 1, n_bins + 1)
-    bin_centers, bin_acc = [], []
 
-    for lo, hi in zip(bins[:-1], bins[1:]):
-        idx = confidences.gt(lo) & confidences.le(hi)
-        if idx.any():
-            bin_centers.append(((lo + hi) / 2).item())
-            bin_acc.append(accuracies[idx].float().mean().item())
 
-    plt.figure(figsize=(5, 5))
-    plt.plot([0, 1], [0, 1], 'k--', lw=1, label='Perfect')
-    plt.plot(bin_centers, bin_acc, marker='o', label='Model')
-    plt.xlabel('Confidence'); plt.ylabel('Accuracy')
-    plt.title('Reliability Diagram')
-    plt.legend(); plt.tight_layout()
-    plt.savefig(save_path); plt.close()
+
+
+# Save the report
+os.makedirs("CustomModelResults", exist_ok=True)
+with open("CustomModelResults/custom_model_classification_report.txt", "w") as f:
+    f.write(custom_report)
+
+
+# Compute test set predictions and specificity
+custom_predictions, custom_true_labels = get_predictions_and_labels(custom_model, data_module)
+custom_specificity_dict = compute_specificity(custom_true_labels, custom_predictions, le)
+custom_avg_specificity = np.mean(list(custom_specificity_dict.values()))
+print("Test Set Specificity for Custom Model:")
+print(f"  Average Specificity: {custom_avg_specificity:.4f}")
+print(f"  Per Class Specificity: {custom_specificity_dict}")
 
 
 
 
 # In[ ]:
-
-
-trainer.test(custom_model, data_module)
-predictions, true_labels = get_predictions_and_labels(custom_model, data_module)
-y_true = np.array(true_labels)
-# -------------------------------------------------------------
-# Uncertainty estimation using MC sampling
-# -------------------------------------------------------------
-N_PASSES = 20
-val_loader = data_module.test_dataloader()
-
-# MC Sampling
-preds_stack = mc_predict(custom_model, val_loader, n_passes=N_PASSES)  # shape: (20, N, 5)
-mean_probs = preds_stack.mean(dim=0)  # (N, 5)
-y_pred = mean_probs.argmax(dim=1).numpy()
-
-# 1. Predictive Entropy
-entropy = -np.sum(mean_probs.numpy() * np.log(mean_probs.numpy() + 1e-8), axis=1)
-avg_entropy = entropy.mean()
-
-# 2. Variation Ratio
-variation_ratio = 1.0 - np.max(mean_probs.numpy(), axis=1)
-avg_variation_ratio = variation_ratio.mean()
-
-# 3. ECE
-confidences = np.max(mean_probs.numpy(), axis=1)
-correctness = (y_pred == y_true).astype(float)
-ece = np.abs(confidences - correctness).mean()
-
-# Ensure directory
-os.makedirs("CustomModelResults", exist_ok=True)
-
-# 4. Save uncertainty metrics
-with open("CustomModelResults/custom_model_uncertainty_metrics.txt", "w") as f:
-    f.write(f"Average Predictive Entropy : {avg_entropy:.4f}\n")
-    f.write(f"Average Variation Ratio    : {avg_variation_ratio:.4f}\n")
-    f.write(f"Expected Calibration Error : {ece:.4f}\n")
-print("✅ Saved uncertainty metrics.")
-
-# 5. Save reliability diagram
-plot_reliability_diagram(mean_probs, torch.tensor(y_true),
-    save_path="CustomModelResults/custom_model_reliability.png")
-print("✅ Saved reliability diagram.")
-
-
-
-
-from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc
-import matplotlib.pyplot as plt
-import numpy as np
-
-# --------- ROC Curve Code START ---------
-# Number of classes (should be 5 for your case)
-n_classes = mean_probs.shape[1]
-# Binarize the labels for ROC computation
-y_true_bin = label_binarize(y_true, classes=np.arange(n_classes))
-
-# Compute ROC curve and AUC for each class
-fpr, tpr, roc_auc = dict(), dict(), dict()
-for i in range(n_classes):
-    fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], mean_probs.numpy()[:, i])
-    roc_auc[i] = auc(fpr[i], tpr[i])
-# Micro-average (all classes together)
-fpr["micro"], tpr["micro"], _ = roc_curve(y_true_bin.ravel(), mean_probs.numpy().ravel())
-roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
-
-# Plot and save
-plt.figure(figsize=(8, 6))
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-for i in range(n_classes):
-    plt.plot(fpr[i], tpr[i], color=colors[i % len(colors)],
-             label=f'Class {i} (area = {roc_auc[i]:.2f})')
-plt.plot(fpr["micro"], tpr["micro"], 'k--', lw=2, label=f"Micro-average (area = {roc_auc['micro']:.2f})")
-
-plt.plot([0, 1], [0, 1], 'k--', lw=1)
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('ROC Curve')
-plt.legend(loc="lower right")
-plt.tight_layout()
-
-# Save ROC to your results directory
-os.makedirs("CustomModelResults", exist_ok=True)
-plt.savefig('CustomModelResults/custom_model_roc_curve.png')
-plt.close()
-print("✅ Saved ROC curve.")
-# --------- ROC Curve Code END ---------
-
-
-# -------------------------------------------------------------------------
-# Fetch predictions  →  confusion matrix  →  specificity  →  save files
-# -------------------------------------------------------------------------
-
-os.makedirs("CustomModelResults", exist_ok=True)
-
-# Confusion matrix (raw counts)
-cm = confusion_matrix(true_labels, predictions,
-                      labels=list(range(len(le.classes_))))
-
-# Macro specificity
-TN = cm.sum() - cm.sum(axis=0) - cm.sum(axis=1) + np.diag(cm)
-FP = cm.sum(axis=0) - np.diag(cm)
-macro_spec = (TN / (TN + FP + 1e-8)).mean()
-print(f"Macro specificity: {macro_spec:.4f}")
-
-# Save CM counts
-pd.DataFrame(cm, index=le.classes_, columns=le.classes_) \
-    .to_csv("CustomModelResults/confusion_matrix.csv")
-
-# Save CM heat‑map
-fig, ax = plt.subplots(figsize=(5, 4))
-im = ax.imshow(cm, cmap="Blues")
-ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-ax.set_xticks(np.arange(len(le.classes_)))
-ax.set_yticks(np.arange(len(le.classes_)))
-ax.set_xticklabels(le.classes_)
-ax.set_yticklabels(le.classes_)
-plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-         rotation_mode="anchor")
-for i in range(cm.shape[0]):
-    for j in range(cm.shape[1]):
-        ax.text(j, i, int(cm[i, j]),
-                ha="center", va="center",
-                color="white" if cm[i, j] > cm.max()/2 else "black")
-ax.set_xlabel("Predicted"); ax.set_ylabel("True")
-ax.set_title("Confusion Matrix")
-plt.tight_layout()
-plt.savefig("CustomModelResults/confusion_matrix.png")
-plt.close()
-
-# Classification report + append specificity
-report = classification_report(
-    true_labels, predictions,
-    target_names=le.inverse_transform(range(len(le.classes_))))
-with open("CustomModelResults/custom_model_classification_report.txt", "w") as fh:
-    fh.write(report)
-    fh.write(f"\nMacro specificity: {macro_spec:.4f}\n")
-
-
-# In[ ]:
-
-
 # Create the directory if it doesn't exist
 os.makedirs("CustomModelResults", exist_ok=True)
 
@@ -681,6 +523,171 @@ os.makedirs("CustomModelResults", exist_ok=True)
 torch.save(custom_model.state_dict(), "CustomModelResults/custom_model.pth")
 
 
-# In[ ]:
 
 
+
+
+
+
+
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
+
+from sklearn.model_selection import StratifiedKFold
+import numpy as np
+
+# Combine your training and validation sets into a DataFrame for cross-validation
+trainval_df = pd.DataFrame({'img': X_trainval.values, 'label': Y_trainval.values})
+
+# Repeat the CV run (e.g., 10 times with different seeds)
+for run in range(1):
+    #seed = 42 + run
+    seed = 42
+    print(f"\n\n=========== Cross-Validation Run {run+1}/10 | Seed: {seed} ===========")
+
+    # Create 10-fold stratified CV with the current seed
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=seed)
+
+    cv_results = []  # To store metrics for each fold
+
+    # Loop through each fold
+    for fold, (train_idx, val_idx) in enumerate(skf.split(trainval_df['img'], trainval_df['label'])):
+        print(f"\n========== Fold {fold+1}/10 (Seed: {seed}) ==========")
+
+        # Retrieve fold data
+        X_fold_train = trainval_df.iloc[train_idx]['img']
+        Y_fold_train = trainval_df.iloc[train_idx]['label']
+        X_fold_val   = trainval_df.iloc[val_idx]['img']
+        Y_fold_val   = trainval_df.iloc[val_idx]['label']
+
+        # Create a data module for the fold
+        fold_data_module = LungImgDataModule(
+            image_paths_train=X_fold_train,
+            image_paths_val=X_fold_val,
+            image_paths_test=X_test,
+            labels_train=Y_fold_train,
+            labels_val=Y_fold_val,
+            labels_test=Y_test,
+            train_transform=train_transform,
+            eval_transform=eval_transform,
+            batch_size=16
+        )
+
+        # Instantiate a new model instance for this fold
+        fold_model = CustomModelLightning(learning_rate=1e-3, num_classes=5)
+
+        # Create and run the trainer
+        #fold_trainer = pl.Trainer(max_epochs=50)
+        callbacks = [
+            ModelCheckpoint(monitor="val_loss", save_top_k=1, mode="min"),
+                    ]
+
+        fold_trainer = pl.Trainer(
+            max_epochs=100,
+            callbacks=callbacks,
+            enable_checkpointing=True,
+            #deterministic=True,  # Optional: for reproducibility
+                )
+        fold_trainer.fit(fold_model, fold_data_module)
+
+        # Evaluate the fold using the validation set
+        # (You can use fold_trainer.validate if your model logs 'val_acc', etc.)
+        val_metrics = fold_trainer.validate(fold_model, fold_data_module)
+        # Here we assume val_metrics[0] is a dictionary with validation accuracy; alternatively, compute metrics below.
+        # We'll compute metrics directly from predictions.
+
+        # Get predictions and true labels from the validation dataloader
+        fold_model.eval()
+        val_preds = []
+        val_true = []
+        for batch in fold_data_module.val_dataloader():
+            X, Y = batch
+            with torch.no_grad():
+                Y_hat = fold_model(X)
+                preds = torch.argmax(Y_hat, dim=1)
+                val_preds.extend(preds.cpu().numpy())
+                val_true.extend(Y.cpu().numpy())
+        val_preds = np.array(val_preds)
+        val_true = np.array(val_true)
+
+        # Compute metrics using sklearn
+        acc    = accuracy_score(val_true, val_preds)
+        f1     = f1_score(val_true, val_preds, average='macro')
+        prec   = precision_score(val_true, val_preds, average='macro')
+        rec    = recall_score(val_true, val_preds, average='macro')
+        spec_dict = compute_specificity(val_true, val_preds, le)
+        spec_avg  = np.mean(list(spec_dict.values()))
+        
+
+        from sklearn.metrics import ConfusionMatrixDisplay
+        import matplotlib.pyplot as plt
+
+        # Compute and plot confusion matrix
+        cm = confusion_matrix(val_true, val_preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=le.classes_)
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        disp.plot(ax=ax, cmap="Blues", xticks_rotation=45)
+        plt.title(f"Confusion Matrix - Fold {fold+1}")
+        plt.tight_layout()
+
+        # Save the figure
+        os.makedirs("CustomModelResults/confusion_matrices", exist_ok=True)
+        plt.savefig(f"CustomModelResults/confusion_matrices/fold_{fold+1}_confusion_matrix.png")
+        plt.close()
+
+        # Print fold metrics
+        print(f"Fold {fold+1} Metrics:")
+        print(f"  Accuracy   : {acc:.4f}")
+        print(f"  F1 Score   : {f1:.4f}")
+        print(f"  Precision  : {prec:.4f}")
+        print(f"  Recall     : {rec:.4f}")
+        print(f"  Specificity: {spec_avg:.4f}")
+        print(f"  Per Class Specificity: {spec_dict}")
+
+        # Save current fold metrics
+        cv_results.append({
+            'val_acc': acc,
+            'val_f1': f1,
+            'val_precision': prec,
+            'val_recall': rec,
+            'val_specificity': spec_avg,
+            'per_class_specificity': spec_dict
+        })
+
+        # Clean up: free memory if needed
+        del fold_model, fold_trainer, fold_data_module
+        torch.cuda.empty_cache()
+
+    # Compute average metrics across folds for this run
+    avg_acc = np.mean([m['val_acc'] for m in cv_results])
+    avg_f1 = np.mean([m['val_f1'] for m in cv_results])
+    avg_precision = np.mean([m['val_precision'] for m in cv_results])
+    avg_recall = np.mean([m['val_recall'] for m in cv_results])
+    avg_specificity = np.mean([m['val_specificity'] for m in cv_results])
+
+    # Print the average cross-validation metrics
+    print(f"\n>>> Custom Model - Average Cross-Validation Metrics (Seed: {seed}):")
+    print(f"  Average Accuracy   : {avg_acc:.4f}")
+    print(f"  Average F1 Score   : {avg_f1:.4f}")
+    print(f"  Average Precision  : {avg_precision:.4f}")
+    print(f"  Average Recall     : {avg_recall:.4f}")
+    print(f"  Average Specificity: {avg_specificity:.4f}")
+
+    # Optionally, save the results for this run to file
+    os.makedirs("CustomModelResults", exist_ok=True)
+    with open(f"CustomModelResults/cv_run_{run+1}_results.txt", "w") as f:
+        for i, metrics in enumerate(cv_results):
+            f.write(f"Fold {i+1} Metrics:\n")
+            f.write(f"  Accuracy   : {metrics['val_acc']:.4f}\n")
+            f.write(f"  F1 Score   : {metrics['val_f1']:.4f}\n")
+            f.write(f"  Precision  : {metrics['val_precision']:.4f}\n")
+            f.write(f"  Recall     : {metrics['val_recall']:.4f}\n")
+            f.write(f"  Specificity: {metrics['val_specificity']:.4f}\n")
+            f.write(f"  Per Class Specificity: {metrics['per_class_specificity']}\n\n")
+        f.write(f"Average Cross-Validation Metrics:\n")
+        f.write(f"  Average Accuracy   : {avg_acc:.4f}\n")
+        f.write(f"  Average F1 Score   : {avg_f1:.4f}\n")
+        f.write(f"  Average Precision  : {avg_precision:.4f}\n")
+        f.write(f"  Average Recall     : {avg_recall:.4f}\n")
+        f.write(f"  Average Specificity: {avg_specificity:.4f}\n")
